@@ -781,7 +781,11 @@ thr_http(void *arg)
                 clean_all();
                 pthread_exit(NULL);
             }
-            if(connect_nb(sock, &backend->addr, backend->conn_to) < 0) {
+#ifdef TPROXY_ENABLE
+	    if(connect_nb(sock, &backend->addr, backend->conn_to, backend->tp_enabled ? &from_host : NULL) < 0) {
+#else
+	    if(connect_nb(sock, &backend->addr, backend->conn_to) < 0) {
+#endif
                 str_be(buf, MAXBUF - 1, backend);
                 logmsg(LOG_WARNING, "(%lx) backend %s connect: %s", pthread_self(), buf, strerror(errno));
                 shutdown(sock, 2);
