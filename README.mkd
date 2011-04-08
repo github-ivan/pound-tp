@@ -4,9 +4,9 @@ Transparent proxy patch for Pound reverse proxy.
 
 ## About TPROXY
 
-TPROXY is Linux specific.
-TPROXY is available in mainline kernel from 2.6.30, thanks to Balabit Ltd. for this excellent code.
-You can find patches for earlier kernels at: http://www.balabit.com/downloads/files/tproxy/
+TPROXY is Linux specific.  
+TPROXY is available in mainline kernel from 2.6.30, thanks to Balabit Ltd. for this excellent code.  
+You can find patches for earlier kernels at: [http://www.balabit.com/downloads/files/tproxy/](http://www.balabit.com/downloads/files/tproxy/)
 
 ##About this patch
 
@@ -14,18 +14,18 @@ Using Pound as transparent proxy have some impact on CPU usage.
 
 Adds a new TProxy global option and a TProxy option for backend.
 
-If global TProxy option is switched on Pound preserves NET_ADMIN capability which needs for TPROXY.
+If global TProxy option is switched on Pound preserves NET_ADMIN capability which needs for TPROXY.  
 If global TProxy option is switched off Pound works as unpatched version.
 
 You can switch on transparent proxy feature on a backend by adding TProxy 1 to that in config.
 
-__You should set the following:__
-iptables -t mangle -N DIVERT
-iptables -t mangle -A PREROUTING -s 10.0.1.141 -p tcp -sport 80 -j DIVERT
-iptables -t mangle -A DIVERT -j MARK --set-mark 111
-iptables -t mangle -A DIVERT -j ACCEPT
-ip rule add fwmark 111 lookup 100
-ip route add local 0.0.0.0/0 dev lo table 100
+__You should set the following:__  
+iptables -t mangle -N DIVERT  
+iptables -t mangle -A PREROUTING -s 10.0.1.141 -p tcp -sport 80 -j DIVERT  
+iptables -t mangle -A DIVERT -j MARK --set-mark 111  
+iptables -t mangle -A DIVERT -j ACCEPT  
+ip rule add fwmark 111 lookup 100  
+ip route add local 0.0.0.0/0 dev lo table 100  
 
 (10.0.0.141:80 is a backend address outside Pound host. If you use different backend server than Pound host than backend hosts need to use Pound host as gateway.)
 
@@ -35,11 +35,11 @@ iptables -t mangle -A OUTPUT -s 10.0.0.142 -p tcp –sport 81 -j DIVERT
 
 (10.0.0.142:81 is a backend address inside Pound host)
 
-You can find further useful information at:
-http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/
+You can find further useful information at:  
+[http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/](http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/)
 
 ## Sample config
-    LogLevel        5
+    LogLevel 5
     LogFacility -
     Client  30
     TimeOut 60
@@ -50,10 +50,10 @@ http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-hap
 	    Port    80
             Service
 	            BackEnd
-	                    Address 192.168.0.1
+		            Address 192.168.0.1
 		            Port    81
 		            TProxy 1
-                    End
+	            End
 	    End
     End
 
