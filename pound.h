@@ -232,6 +232,14 @@
 #define const
 #endif
 
+#ifdef TPROXY_ENABLE
+#include <sys/prctl.h>
+#include <linux/capability.h>
+#ifndef IP_TRANSPARENT 
+#define IP_TRANSPARENT 19
+#endif
+#endif
+
 #ifndef NO_EXTERNALS
 /*
  * Global variables needed by everybody
@@ -249,6 +257,11 @@ extern int  alive_to,           /* check interval for resurrection */
             print_log,          /* print log messages to stdout/stderr */
             grace,              /* grace period before shutdown */
             control_sock;       /* control socket */
+
+#ifdef TPROXY_ENABLE
+extern int  have_tproxy,        /* is tproxy available */
+            enable_tproxy;      /* is tproxy enabled */
+#endif
 
 extern regex_t  HEADER,     /* Allowed header */
                 CHUNK_HEAD, /* chunk header line */
@@ -294,6 +307,9 @@ typedef struct _backend {
     int                 priority;   /* priority */
     int                 to;
     struct addrinfo     ha_addr;    /* HA address/port */
+#ifdef TPROXY_ENABLE
+    int                 tp_enabled; /* TProxy is enabled */
+#endif
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */
     pthread_mutex_t     mut;        /* mutex for this back-end */
@@ -509,7 +525,12 @@ extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
  * Non-blocking version of connect(2). Does the same as connect(2) but
  * ensures it will time-out after a much shorter time period CONN_TO.
  */
+#ifdef TPROXY_ENABLE
+extern int  detect_tproxy(void);
+extern int  connect_nb(const int, const struct addrinfo *, const int, const struct addrinfo *);
+#else
 extern int  connect_nb(const int, const struct addrinfo *, const int);
+#endif
 
 /*
  * Parse arguments/config file

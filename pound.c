@@ -41,6 +41,10 @@ int         alive_to,           /* check interval for resurrection */
             print_log,          /* print log messages to stdout/stderr */
             grace,              /* grace period before shutdown */
             control_sock;       /* control socket */
+#ifdef TPROXY_ENABLE
+int         have_tproxy,        /* is transparent proxy available */
+            enable_tproxy;      /* is tproxy enabled */
+#endif
 
 SERVICE     *services;          /* global services (if any) */
 
@@ -165,11 +169,23 @@ main(const int argc, char **argv)
 #ifndef SOL_TCP
     struct protoent     *pe;
 #endif
+#ifdef TPROXY_ENABLE
+    typedef struct __user_cap_header_struct     tp_cap_header_t;
+    typedef struct __user_cap_data_struct       tp_cap_data_t;
+    tp_cap_header_t     tp_cap_header;
+    tp_cap_data_t       tp_cap_data;
+#endif
 
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
     log_facility = -1;
+#ifdef TPROXY_ENABLE
+    have_tproxy = 0;
+    tp_cap_header.version = _LINUX_CAPABILITY_VERSION;
+    tp_cap_header.pid = 0;
+    tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
+#endif
     logmsg(LOG_NOTICE, "starting...");
 
     signal(SIGHUP, h_shut);
@@ -208,6 +224,19 @@ main(const int argc, char **argv)
         exit(1);
     }
     SOL_TCP = pe->p_proto;
+#endif
+ 
+#ifdef TPROXY_ENABLE
+    if (! detect_tproxy()) {
+        if (geteuid() == 0) {
+            have_tproxy = 1;
+            logmsg(LOG_INFO, "tproxy: available");
+        } else {
+            logmsg(LOG_ERR, "tproxy: disabled. you must start pound with root privileges. later it will drop privileges.");
+        }
+    } else {
+        logmsg(LOG_INFO, "tproxy: not supported or not enough privileges");
+    }
 #endif
 
     /* read config */
@@ -326,6 +355,36 @@ main(const int argc, char **argv)
         }
     }
 
+#ifdef TPROXY_ENABLE
+    if (enable_tproxy)
+    {
+        if (capget(&tp_cap_header, &tp_cap_data) != 0)
+        {
+            logmsg(LOG_ERR, "capabilities: can't get capabilities");
+            exit(1);
+        }
+        if (prctl(PR_SET_KEEPCAPS, 1) < 0)
+        {
+            logmsg(LOG_ERR, "capabilities: can't enable keep capabilities");
+            exit(1);
+        }
+        
+        tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
+        tp_cap_data.effective |= (1 << CAP_NET_ADMIN);
+        tp_cap_data.effective |= (1 << CAP_SETUID);
+        tp_cap_data.effective |= (1 << CAP_SETGID);
+        tp_cap_data.permitted |= (1 << CAP_NET_ADMIN);
+        tp_cap_data.permitted |= (1 << CAP_SETUID);
+        tp_cap_data.permitted |= (1 << CAP_SETGID);
+
+        if (capset(&tp_cap_header, &tp_cap_data) != 0)
+        {
+            logmsg(LOG_ERR, "capabilities: can't set capabilities");
+            exit(1);
+        }
+    }
+#endif
+
     if(group)
         if(setgid(group_id) || setegid(group_id)) {
             logmsg(LOG_ERR, "setgid: %s - aborted", strerror(errno));
@@ -336,6 +395,32 @@ main(const int argc, char **argv)
             logmsg(LOG_ERR, "setuid: %s - aborted", strerror(errno));
             exit(1);
         }
+
+#ifdef TPROXY_ENABLE
+    if (enable_tproxy)
+    {
+        if (capget(&tp_cap_header, &tp_cap_data) != 0)
+        {
+            logmsg(LOG_ERR, "user capabilities: can't get capabilities");
+            exit(1);
+        }
+        if (prctl(PR_SET_KEEPCAPS, 1) < 0)
+        {
+            logmsg(LOG_ERR, "user capabilities: can't enable keep capabilities");
+            exit(1);
+        }
+
+        tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
+        tp_cap_data.effective |= (1 << CAP_NET_ADMIN);
+        tp_cap_data.permitted |= (1 << CAP_NET_ADMIN);
+
+        if (capset(&tp_cap_header, &tp_cap_data) != 0)
+        {
+            logmsg(LOG_ERR, "user capabilities: can't set capabilities");
+            exit(1);
+        }
+    }
+#endif
 
     /* split off into monitor and working process if necessary */
     for(;;) {

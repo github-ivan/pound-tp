@@ -37,8 +37,8 @@
 /* This is lifted verbatim from the Linux sys/syslog.h */
 
 typedef struct _code {
-	char	*c_name;
-	int	c_val;
+        char    *c_name;
+        int     c_val;
 } CODE;
 
 static CODE facilitynames[] = {
@@ -79,6 +79,9 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace;
+#ifdef TPROXY_ENABLE
+static regex_t  TProxy;
+#endif
 
 static regmatch_t   matches[5];
 
@@ -125,6 +128,10 @@ parse_be(FILE *const f_conf, const int is_emergency)
     res->url = NULL;
     res->next = NULL;
     has_addr = has_port = 0;
+#ifdef TPROXY_ENABLE
+    res->tp_enabled = 0;
+#endif
+
     pthread_mutex_init(&res->mut, NULL);
     while(fgets(lin, MAXBUF, f_conf)) {
         n_lin++;
@@ -246,6 +253,10 @@ parse_be(FILE *const f_conf, const int is_emergency)
                 exit(1);
             }
             return res;
+#ifdef TPROXY_ENABLE
+        } else if(!regexec(&TProxy, lin, 4, matches, 0)) {
+            if (enable_tproxy && have_tproxy) res->tp_enabled = atoi(lin + matches[1].rm_so);
+#endif
         } else {
             logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
@@ -1186,6 +1197,13 @@ parse_file(FILE *const f_conf)
                     ;
                 svc->next = parse_service(f_conf, lin + matches[1].rm_so);
             }
+#ifdef TPROXY_ENABLE
+        } else if(!regexec(&TProxy, lin, 4, matches, 0)) {
+            if (have_tproxy)
+                enable_tproxy = atoi(lin + matches[1].rm_so);
+            else
+                enable_tproxy = 0;
+#endif
         } else {
             logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
@@ -1258,6 +1276,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#ifdef TPROXY_ENABLE
+    || regcomp(&TProxy, "^[ \t]*TProxy[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#endif
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1412,6 +1433,9 @@ config_parse(const int argc, char **const argv)
     regfree(&VerifyList);
     regfree(&CRLlist);
     regfree(&NoHTTPS11);
+#ifdef TPROXY_ENABLE
+    regfree(&TProxy);
+#endif
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;
