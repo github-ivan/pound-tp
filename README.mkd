@@ -6,7 +6,7 @@ Transparent proxy patch for Pound reverse proxy.
 
 TPROXY is Linux specific.  
 TPROXY is available in mainline kernel from 2.6.30, thanks to Balabit Ltd. for this excellent code.  
-You can find patches for earlier kernels at: http://www.balabit.com/downloads/files/tproxy/
+You can find patches for earlier kernels at: [http://www.balabit.com/downloads/files/tproxy/](http://www.balabit.com/downloads/files/tproxy/)
 
 ##About this patch
 
@@ -19,7 +19,7 @@ If global TProxy option is switched off Pound works as unpatched version.
 
 You can switch on transparent proxy feature on a backend by adding TProxy 1 to that in config.
 
-__You should set the following:__
+__You should set the following:__  
 iptables -t mangle -N DIVERT  
 iptables -t mangle -A PREROUTING -s 10.0.1.141 -p tcp -sport 80 -j DIVERT  
 iptables -t mangle -A DIVERT -j MARK --set-mark 111  
