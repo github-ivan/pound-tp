@@ -36,7 +36,7 @@ iptables -t mangle -A OUTPUT -s 10.0.0.142 -p tcp –sport 81 -j DIVERT
 (10.0.0.142:81 is a backend address inside Pound host)
 
 You can find further useful information at:  
-http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/
+[http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/](http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-haproxy-backend-patch-and-howto/)
 
 ## Sample config
     LogLevel 5
@@ -46,18 +46,17 @@ http://blog.loadbalancer.org/transparent-proxy-of-ssl-traffic-using-pound-to-hap
     TProxy 1
 
     ListenHTTP
-        Address 0.0.0.0
-        Port    80
+	    Address 0.0.0.0
+	    Port    80
             Service
-                BackEnd
-	            Address 192.168.0.1
-	            Port    81
-	            TProxy 1
-                    End
-        End
+	            BackEnd
+		            Address 192.168.0.1
+		            Port    81
+		            TProxy 1
+	            End
+	    End
     End
 
 Patch by:
 ivan < github-ivan ( ) enfinity.hu >
-
 
