@@ -368,6 +368,40 @@ cpURL(char *res, char *src, int len)
     return res - kp_res;
 }
 
+#ifdef TPROXY_ENABLE
+/*
+ * detect_tproxy
+ * check for TPROXY
+ *
+ * Thanks to Loadbalancer.org, Inc. especially to Malcolm Turnbull for sponsorship
+ * Thanks to Sianet Business Hosting especially to Rodrigo L. L. Jorge for sponsorship
+ *
+ */
+int
+detect_tproxy(void)
+{
+    int sock, tp_val;
+
+    tp_val = 1;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        logmsg(LOG_WARNING, "detect_tproxy(): socket SOCK_STREAM failed: %s", strerror(errno));
+        return 1;
+    }
+    if (setsockopt(sock, SOL_IP, IP_TRANSPARENT, &tp_val, sizeof(tp_val)) < 0) {
+        logmsg(LOG_INFO, "detect_tproxy(): tproxy is not available");
+        close(sock);
+        return 1;
+    }
+
+    close(sock);
+    logmsg(LOG_INFO, "detect_tproxy(): tproxy is is detected");
+
+    return 0;
+}
+#endif
+
 /*
  * Parse a header
  * return a code and possibly content in the arg
@@ -904,12 +938,26 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
  * Non-blocking connect(). Does the same as connect(2) but ensures
  * it will time-out after a much shorter time period SERVER_TO
  */
+#ifdef TPROXY_ENABLE
 int
-connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to)
-{
+connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to, const struct addrinfo *tp_addr) {
+#else
+int
+connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to) {
+#endif
     int             flags, res, error;
     socklen_t       len;
     struct pollfd   p;
+#ifdef TPROXY_ENABLE
+    int tp_val = 1;
+    struct sockaddr_in in;
+#endif
+
+    if (! serv_addr->ai_addr)
+    {
+        logmsg(LOG_ERR, "connect_nb: wrong serv_addr->ai_addr");
+        return -1;
+    }
 
     if((flags = fcntl(sockfd, F_GETFL, 0)) < 0) {
         logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl GETFL failed: %s", pthread_self(), strerror(errno));
@@ -919,6 +967,24 @@ connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to)
         logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl SETFL failed: %s", pthread_self(), strerror(errno));
         return -1;
     }
+ 
+#ifdef TPROXY_ENABLE
+    if (tp_addr) {
+        memcpy(&in, tp_addr->ai_addr, sizeof(in));
+        in.sin_port = 0;
+        if (setsockopt(sockfd, SOL_IP, IP_TRANSPARENT, &tp_val, sizeof(tp_val)) < 0) {
+            logmsg(LOG_ERR, "(%lx) connect_nb: cannot set TProxy IP_TRANSPARENT socket option. Error: %d, %s.", pthread_self(),
+                             error, strerror(error));
+            return -1;
+        }
+
+        if (bind(sockfd, (struct sockaddr *) &in, sizeof(in)) < 0) {
+            logmsg(LOG_ERR, "(%lx) connect_nb: cannot bind to TProxy IP. Error: %d, %s.", pthread_self(),
+                             error, strerror(error));
+            return -1;
+        }
+    }
+#endif
 
     error = 0;
     if((res = connect(sockfd, serv_addr->ai_addr, serv_addr->ai_addrlen)) < 0)
@@ -1018,7 +1084,12 @@ do_resurect(void)
         default:
             continue;
         }
-        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0) {
+#ifdef TPROXY_ENABLE
+        if(connect_nb(sock, &be->ha_addr, be->conn_to, NULL) != 0)
+#else
+        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0)
+#endif
+        {
             kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
@@ -1054,7 +1125,12 @@ do_resurect(void)
         default:
             continue;
         }
-        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0) {
+#ifdef TPROXY_ENABLE
+        if(connect_nb(sock, &be->ha_addr, be->conn_to, NULL) != 0)
+#else
+        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0)
+#endif
+        {
             kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
@@ -1109,7 +1185,12 @@ do_resurect(void)
                 }
                 addr = &be->ha_addr;
             }
-            if(connect_nb(sock, addr, be->conn_to) == 0) {
+#ifdef TPROXY_ENABLE
+            if(connect_nb(sock, addr, be->conn_to, NULL) != 0)
+#else
+            if(connect_nb(sock, addr, be->conn_to) != 0)
+#endif
+            {
                 be->resurrect = 1;
                 modified = 1;
             }
@@ -1178,7 +1259,12 @@ do_resurect(void)
                 }
                 addr = &be->ha_addr;
             }
-            if(connect_nb(sock, addr, be->conn_to) == 0) {
+#ifdef TPROXY_ENABLE
+            if(connect_nb(sock, addr, be->conn_to, NULL) == 0)
+#else
+            if(connect_nb(sock, addr, be->conn_to) == 0)
+#endif
+            {
                 be->resurrect = 1;
                 modified = 1;
             }

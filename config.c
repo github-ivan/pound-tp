@@ -78,6 +78,9 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads;
+#ifdef TPROXY_ENABLE
+static regex_t  TProxy;
+#endif
 
 static regmatch_t   matches[5];
 
@@ -194,6 +197,10 @@ parse_be(const int is_emergency)
     res->url = NULL;
     res->next = NULL;
     has_addr = has_port = 0;
+#ifdef TPROXY_ENABLE
+    res->tp_enabled = 0;
+#endif
+
     pthread_mutex_init(&res->mut, NULL);
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
@@ -321,6 +328,10 @@ parse_be(const int is_emergency)
             if((res->addr.ai_family == AF_INET || res->addr.ai_family == AF_INET6) && !has_port)
                 conf_err("BackEnd missing Port - aborted");
             return res;
+#ifdef TPROXY_ENABLE
+        } else if(!regexec(&TProxy, lin, 4, matches, 0)) {
+	    if (enable_tproxy && have_tproxy) res->tp_enabled = atoi(lin + matches[1].rm_so);
+#endif
         } else {
             conf_err("unknown directive");
         }
@@ -1222,6 +1233,13 @@ parse_file(void)
                     ;
                 svc->next = parse_service(lin + matches[1].rm_so);
             }
+#ifdef TPROXY_ENABLE
+        } else if(!regexec(&TProxy, lin, 4, matches, 0)) {
+	    if (have_tproxy)
+                enable_tproxy = atoi(lin + matches[1].rm_so);
+	    else
+		enable_tproxy = 0;
+#endif
         } else {
             conf_err("unknown directive - aborted");
         }
@@ -1300,6 +1318,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+[01][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#ifdef TPROXY_ENABLE
+    || regcomp(&TProxy, "^[ \t]*TProxy[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#endif
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1457,6 +1478,9 @@ config_parse(const int argc, char **const argv)
     regfree(&HTTPS);
     regfree(&HTTPSCert);
     regfree(&Disabled);
+#ifdef TPROXY_ENABLE
+    regfree(&TProxy);
+#endif
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;
