@@ -1,6 +1,6 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002-2010 Apsis GmbH
+ * Copyright (C) 2002-2007 Apsis GmbH
  *
  * This file is part of Pound.
  *
@@ -9,7 +9,7 @@
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  * 
- * Pound is distributed in the hope that it will be useful,
+ * Foobar is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
@@ -22,6 +22,7 @@
  * P.O.Box
  * 8707 Uetikon am See
  * Switzerland
+ * Tel: +41-44-920 4904
  * EMail: roseg@apsis.ch
  */
 
@@ -40,10 +41,6 @@ int         alive_to,           /* check interval for resurrection */
             print_log,          /* print log messages to stdout/stderr */
             grace,              /* grace period before shutdown */
             control_sock;       /* control socket */
-#ifdef TPROXY_ENABLE
-int         have_tproxy,        /* is transparent proxy available */
-            enable_tproxy;      /* is tproxy enabled */
-#endif
 
 SERVICE     *services;          /* global services (if any) */
 
@@ -109,67 +106,6 @@ l_id(void)
 }
 
 /*
- * work queue stuff
- */
-static thr_arg          *first = NULL, *last = NULL;
-static pthread_cond_t   arg_cond;
-static pthread_mutex_t  arg_mut;
-int                     numthreads;
-
-static void
-init_thr_arg(void)
-{
-    pthread_cond_init(&arg_cond, NULL);
-    pthread_mutex_init(&arg_mut, NULL);
-    return;
-}
-
-/*
- * add a request to the queue
- */
-int
-put_thr_arg(thr_arg *arg)
-{
-    thr_arg *res;
-
-    if((res = malloc(sizeof(thr_arg))) == NULL) {
-        logmsg(LOG_WARNING, "thr_arg malloc");
-        return -1;
-    }
-    memcpy(res, arg, sizeof(thr_arg));
-    (void)pthread_mutex_lock(&arg_mut);
-    if(last == NULL)
-        first = last = res;
-    else {
-        last->next = res;
-        last = last->next;
-    }
-    (void)pthread_mutex_unlock(&arg_mut);
-    pthread_cond_signal(&arg_cond);
-    return 0;
-}
-
-/*
- * get a request from the queue
- */
-thr_arg *
-get_thr_arg(void)
-{
-    thr_arg *res;
-
-    (void)pthread_mutex_lock(&arg_mut);
-    if(first == NULL)
-        (void)pthread_cond_wait(&arg_cond, &arg_mut);
-    if((res = first) != NULL)
-        if((first = first->next) == NULL)
-            last = NULL;
-    (void)pthread_mutex_unlock(&arg_mut);
-    if(first != NULL)
-        pthread_cond_signal(&arg_cond);
-    return res;
-}
-
-/*
  * handle SIGTERM/SIGQUIT - exit
  */
 static RETSIGTYPE
@@ -229,23 +165,11 @@ main(const int argc, char **argv)
 #ifndef SOL_TCP
     struct protoent     *pe;
 #endif
-#ifdef TPROXY_ENABLE
-    typedef struct __user_cap_header_struct     tp_cap_header_t;
-    typedef struct __user_cap_data_struct       tp_cap_data_t;
-    tp_cap_header_t     tp_cap_header;
-    tp_cap_data_t       tp_cap_data;
-#endif
 
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
     log_facility = -1;
-#ifdef TPROXY_ENABLE
-    have_tproxy = 0;
-    tp_cap_header.version = _LINUX_CAPABILITY_VERSION;
-    tp_cap_header.pid = 0;
-    tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
-#endif
     logmsg(LOG_NOTICE, "starting...");
 
     signal(SIGHUP, h_shut);
@@ -261,7 +185,6 @@ main(const int argc, char **argv)
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     l_init();
-    init_thr_arg();
     CRYPTO_set_id_callback(l_id);
     CRYPTO_set_locking_callback(l_lock);
     init_timer();
@@ -272,7 +195,7 @@ main(const int argc, char **argv)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[456]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LOCATION, "(http|https)://([^/]+)(.*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&AUTHORIZATION, "Authorization:[ \t]*Basic[ \t]*\"?([^ \t]*)\"?[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AUTHORIZATION, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad essential Regex - aborted");
         exit(1);
@@ -285,19 +208,6 @@ main(const int argc, char **argv)
         exit(1);
     }
     SOL_TCP = pe->p_proto;
-#endif
- 
-#ifdef TPROXY_ENABLE
-    if (! detect_tproxy()) {
-        if (geteuid() == 0) {
-            have_tproxy = 1;
-            logmsg(LOG_INFO, "tproxy: available");
-        } else {
-            logmsg(LOG_ERR, "tproxy: disabled. you must start pound with root privileges. later it will drop privileges.");
-        }
-    } else {
-        logmsg(LOG_INFO, "tproxy: not supported or not enough privileges");
-    }
 #endif
 
     /* read config */
@@ -416,36 +326,6 @@ main(const int argc, char **argv)
         }
     }
 
-#ifdef TPROXY_ENABLE
-    if (enable_tproxy)
-    {
-        if (capget(&tp_cap_header, &tp_cap_data) != 0)
-        {
-            logmsg(LOG_ERR, "capabilities: can't get capabilities");
-            exit(1);
-        }
-        if (prctl(PR_SET_KEEPCAPS, 1) < 0)
-        {
-            logmsg(LOG_ERR, "capabilities: can't enable keep capabilities");
-            exit(1);
-        }
-        
-        tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
-        tp_cap_data.effective |= (1 << CAP_NET_ADMIN);
-        tp_cap_data.effective |= (1 << CAP_SETUID);
-        tp_cap_data.effective |= (1 << CAP_SETGID);
-        tp_cap_data.permitted |= (1 << CAP_NET_ADMIN);
-        tp_cap_data.permitted |= (1 << CAP_SETUID);
-        tp_cap_data.permitted |= (1 << CAP_SETGID);
-
-        if (capset(&tp_cap_header, &tp_cap_data) != 0)
-        {
-            logmsg(LOG_ERR, "capabilities: can't set capabilities");
-            exit(1);
-        }
-    }
-#endif
-
     if(group)
         if(setgid(group_id) || setegid(group_id)) {
             logmsg(LOG_ERR, "setgid: %s - aborted", strerror(errno));
@@ -456,32 +336,6 @@ main(const int argc, char **argv)
             logmsg(LOG_ERR, "setuid: %s - aborted", strerror(errno));
             exit(1);
         }
-
-#ifdef TPROXY_ENABLE
-    if (enable_tproxy)
-    {
-        if (capget(&tp_cap_header, &tp_cap_data) != 0)
-        {
-            logmsg(LOG_ERR, "user capabilities: can't get capabilities");
-            exit(1);
-        }
-        if (prctl(PR_SET_KEEPCAPS, 1) < 0)
-        {
-            logmsg(LOG_ERR, "user capabilities: can't enable keep capabilities");
-            exit(1);
-        }
-
-        tp_cap_data.effective = tp_cap_data.permitted = tp_cap_data.inheritable = 0;
-        tp_cap_data.effective |= (1 << CAP_NET_ADMIN);
-        tp_cap_data.permitted |= (1 << CAP_NET_ADMIN);
-
-        if (capset(&tp_cap_header, &tp_cap_data) != 0)
-        {
-            logmsg(LOG_ERR, "user capabilities: can't set capabilities");
-            exit(1);
-        }
-    }
-#endif
 
     /* split off into monitor and working process if necessary */
     for(;;) {
@@ -523,17 +377,7 @@ main(const int argc, char **argv)
             }
 
             /* pause to make sure the service threads were started */
-            sleep(1);
-
-            /* create the worker threads */
-            for(i = 0; i < numthreads; i++)
-                if(pthread_create(&thr, &attr, thr_http, NULL)) {
-                    logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
-                    exit(1);
-                }
-
-            /* pause to make sure at least some of the worker threads were started */
-            sleep(1);
+            sleep(2);
 
             /* and start working */
             for(;;) {
@@ -565,7 +409,7 @@ main(const int argc, char **argv)
                                 logmsg(LOG_WARNING, "HTTP accept: %s", strerror(errno));
                             } else if(((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET
                                    || ((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET6) {
-                                thr_arg arg;
+                                thr_arg *arg;
 
                                 if(lstn->disabled) {
                                     /*
@@ -574,21 +418,30 @@ main(const int argc, char **argv)
                                     */
                                     close(clnt);
                                 }
-                                arg.sock = clnt;
-                                arg.lstn = lstn;
-                                if((arg.from_host.ai_addr = (struct sockaddr *)malloc(clnt_length)) == NULL) {
-                                    logmsg(LOG_WARNING, "HTTP arg address: malloc");
+                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                    logmsg(LOG_WARNING, "HTTP arg: malloc");
                                     close(clnt);
                                     continue;
                                 }
-                                memcpy(arg.from_host.ai_addr, &clnt_addr, clnt_length);
-                                arg.from_host.ai_addrlen = clnt_length;
+                                arg->sock = clnt;
+                                arg->lstn = lstn;
+                                if((arg->from_host.ai_addr = (struct sockaddr *)malloc(clnt_length)) == NULL) {
+                                    logmsg(LOG_WARNING, "HTTP arg address: malloc");
+                                    free(arg);
+                                    continue;
+                                }
+                                memcpy(arg->from_host.ai_addr, &clnt_addr, clnt_length);
+                                arg->from_host.ai_addrlen = clnt_length;
                                 if(((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET)
-                                    arg.from_host.ai_family = AF_INET;
+                                    arg->from_host.ai_family = AF_INET;
                                 else
-                                    arg.from_host.ai_family = AF_INET6;
-                                if(put_thr_arg(&arg))
+                                    arg->from_host.ai_family = AF_INET6;
+                                if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+                                    logmsg(LOG_WARNING, "HTTP pthread_create: %s", strerror(errno));
+                                    free(arg->from_host.ai_addr);
+                                    free(arg);
                                     close(clnt);
+                                }
                             } else {
                                 /* may happen on FreeBSD, I am told */
                                 logmsg(LOG_WARNING, "HTTP connection prematurely closed by peer");
