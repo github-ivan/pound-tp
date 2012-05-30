@@ -247,6 +247,19 @@
 #ifndef IP_TRANSPARENT 
 #define IP_TRANSPARENT 19
 #endif
+
+#ifdef  HAVE_LONG_LONG_INT
+#define LONG    long long
+#define L0      0LL
+#define L_1     -1LL
+#define STRTOL  strtoll
+#define ATOL    atoll
+#else
+#define LONG    long
+#define L0      0L
+#define L_1     -1L
+#define STRTOL  strtol
+#define ATOL    atol
 #endif
 
 #ifndef NO_EXTERNALS
@@ -400,7 +413,7 @@ typedef struct _listener {
                         *err500,
                         *err501,
                         *err503;
-    long                max_req;        /* max. request size */
+    LONG                max_req;        /* max. request size */
     MATCHER             *head_off;      /* headers to remove */
     int                 rewr_loc;       /* rewrite location response */
     int                 rewr_dest;      /* rewrite destination header */
